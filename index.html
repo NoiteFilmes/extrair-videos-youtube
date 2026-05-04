@@ -2,221 +2,180 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>YouTube Extractor ULTRA PRO</title>
+<title>JSON + YouTube ULTRA FIX</title>
 
 <style>
-body { font-family: Arial; background:#0f172a; color:white; padding:20px;}
-.container { max-width:1000px; margin:auto;}
+body {font-family:Arial;background:#0f172a;color:white;padding:20px;}
+.container{max-width:1000px;margin:auto;}
 input,button,textarea{
-  width:100%; padding:10px; margin-top:10px;
-  border-radius:6px; border:none; font-size:14px;
+  width:100%;padding:10px;margin-top:10px;border-radius:6px;border:none;
 }
 button{background:#2563eb;color:white;cursor:pointer;}
-button:hover{background:#1d4ed8;}
-
-.progress{height:20px;background:#1e293b;margin-top:10px;}
-.bar{height:100%;width:0;background:#22c55e;}
-
-.editor{
-  background:#020617;
-  color:#e2e8f0;
-  height:300px;
-  font-family:monospace;
-}
-
-.errorLine{
-  background:rgba(255,0,0,0.3);
-}
-
-pre{background:black;padding:10px;max-height:250px;overflow:auto;}
+textarea{height:300px;background:#020617;color:#e2e8f0;font-family:monospace;}
+pre{background:black;padding:10px;}
 </style>
 </head>
 
 <body>
 <div class="container">
 
-<h2>🚀 YouTube Extractor ULTRA PRO</h2>
+<h2>🚀 JSON FIXER + YouTube</h2>
 
-<input id="url" placeholder="Canal ou playlist">
-<input id="filtro" placeholder="Filtro (opcional)">
+<h3>📂 Upload JSON</h3>
+<input type="file" id="file" multiple>
 
-<button onclick="extrair()">Extrair</button>
+<button onclick="carregar()">Carregar</button>
+<button onclick="validar()">Validar</button>
+<button onclick="corrigir()">🛠️ Corrigir COMPLETO</button>
 
-<div class="progress"><div id="bar" class="bar"></div></div>
+<button onclick="copiarCorrigido()">📋 Copiar JSON corrigido</button>
+<button onclick="baixarCorrigido()">📥 Baixar JSON corrigido</button>
 
-<button onclick="baixarJSON()">📥 JSON</button>
-<button onclick="baixarLinks()">🔗 Links</button>
-<button onclick="baixarCSV()">📊 CSV (Excel)</button>
-<button onclick="copiar()">📋 Copiar</button>
+<textarea id="editor"></textarea>
 
-<hr>
-
-<h3>🧠 Editor JSON Avançado</h3>
-
-<input type="file" multiple id="upload">
-<button onclick="carregarArquivos()">📂 Carregar JSON(s)</button>
-<button onclick="validar()">✅ Validar</button>
-<button onclick="corrigir()">🛠️ Corrigir automático</button>
-
-<textarea id="editor" class="editor"></textarea>
-
-<div id="erro"></div>
-
-<hr>
-
-<pre id="output"></pre>
+<div id="log"></div>
 
 </div>
 
 <script>
-const API_KEY="AIzaSyAbNom3ojJUOAPME0jAPUPiP4adZ6SNHhk";
-let dados=[];
 
-// ===== PROGRESS =====
-function prog(p){document.getElementById("bar").style.width=p+"%";}
+let jsonCorrigido="";
 
-// ===== YOUTUBE =====
-async function getChannelId(u){
-  const r=await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${u}&type=channel&key=${API_KEY}`);
-  const d=await r.json();
-  return d.items[0].snippet.channelId;
-}
-
-async function getVideos(id){
-  let vids=[],next="",page=0;
-
-  do{
-    page++; prog(page*10);
-
-    const r=await fetch(`https://www.googleapis.com/youtube/v3/search?key=${API_KEY}&channelId=${id}&part=snippet,id&maxResults=50&pageToken=${next}`);
-    const d=await r.json();
-
-    const ids=d.items.filter(v=>v.id.videoId).map(v=>v.id.videoId);
-
-    const det=await fetch(`https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${ids.join(",")}&part=snippet`);
-    const j=await det.json();
-
-    vids.push(...j.items.map(v=>({
-      titulo:v.snippet.title,
-      descricao:v.snippet.description,
-      link:`https://www.youtube.com/watch?v=${v.id}`
-    })));
-
-    next=d.nextPageToken;
-
-  }while(next);
-
-  prog(100);
-  return vids;
-}
-
-// ===== EXTRAÇÃO =====
-async function extrair(){
-  const url=document.getElementById("url").value;
-  const filtro=document.getElementById("filtro").value.toLowerCase();
-
-  let user=url.split("@")[1];
-  let id=await getChannelId(user);
-  dados=await getVideos(id);
-
-  if(filtro){
-    dados=dados.filter(v=>
-      v.titulo.toLowerCase().includes(filtro)||
-      v.descricao.toLowerCase().includes(filtro)
-    );
-  }
-
-  document.getElementById("output").textContent=JSON.stringify(dados,null,2);
-}
-
-// ===== EXPORT =====
-function baixarJSON(){
-  const b=new Blob([JSON.stringify(dados,null,2)]);
-  download(b,"dados.json");
-}
-
-function baixarLinks(){
-  const txt=dados.map(v=>v.link).join("\n");
-  download(new Blob([txt]),"links.txt");
-}
-
-function baixarCSV(){
-  let csv="titulo,descricao,link\n";
-  dados.forEach(v=>{
-    csv+=`"${v.titulo}","${v.descricao.replace(/\n/g," ")}","${v.link}"\n`;
-  });
-  download(new Blob([csv]),"dados.csv");
-}
-
-function download(blob,nome){
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=nome;
-  a.click();
-}
-
-function copiar(){
-  navigator.clipboard.writeText(JSON.stringify(dados,null,2));
-  alert("Copiado!");
-}
-
-// ===== JSON EDITOR =====
-
-function carregarArquivos(){
-  const files=document.getElementById("upload").files;
-  let conteudo="";
+// ===== LOAD =====
+function carregar(){
+  const files=document.getElementById("file").files;
+  let texto="";
 
   Array.from(files).forEach(f=>{
     const r=new FileReader();
     r.onload=e=>{
-      conteudo+=e.target.result+"\n";
-      document.getElementById("editor").value=conteudo;
+      texto+=e.target.result+"\n";
+      document.getElementById("editor").value=texto;
     };
     r.readAsText(f);
   });
 }
 
-// ===== VALIDAÇÃO =====
+// ===== VALIDAR =====
 function validar(){
-  const txt=document.getElementById("editor").value;
-  const erroDiv=document.getElementById("erro");
-
   try{
-    JSON.parse(txt);
-    erroDiv.innerHTML="✅ JSON válido";
-    erroDiv.style.color="#22c55e";
+    JSON.parse(document.getElementById("editor").value);
+    log("✅ JSON válido");
   }catch(e){
-    let pos=e.message.match(/position (\d+)/);
-    let linha=0;
-
-    if(pos){
-      let p=parseInt(pos[1]);
-      linha=txt.substring(0,p).split("\n").length;
-    }
-
-    erroDiv.innerHTML=`
-❌ Erro na linha: ${linha}<br>
-${e.message}<br>
-💡 Verifique vírgulas, aspas ou fechamento de chaves
-    `;
-    erroDiv.style.color="#ff6b6b";
+    log("❌ Erro: "+e.message);
   }
 }
 
-// ===== AUTO CORREÇÃO =====
-function corrigir(){
-  let txt=document.getElementById("editor").value;
+// ===== LOG =====
+function log(msg){
+  document.getElementById("log").innerHTML+=msg+"<br>";
+}
 
-  // remove vírgulas finais
+// ===== CORREÇÃO AVANÇADA =====
+function corrigir(){
+
+  let txt=document.getElementById("editor").value;
+  let original=txt;
+
+  log("🔧 Iniciando correção...");
+
+  // 1. remover BOM
+  txt=txt.replace(/^\uFEFF/, "");
+
+  // 2. remover comentários
+  txt=txt.replace(/\/\/.*$/gm,"");
+  txt=txt.replace(/\/\*[\s\S]*?\*\//g,"");
+
+  // 3. remover vírgulas inválidas
   txt=txt.replace(/,\s*}/g,"}");
   txt=txt.replace(/,\s*]/g,"]");
 
-  // adiciona aspas em chaves simples
-  txt=txt.replace(/(\w+):/g,'"$1":');
+  // 4. adicionar aspas em chaves
+  txt=txt.replace(/([{,]\s*)(\w+)\s*:/g,'$1"$2":');
 
-  document.getElementById("editor").value=txt;
-  alert("Correções básicas aplicadas!");
+  // 5. corrigir aspas simples
+  txt=txt.replace(/'/g,'"');
+
+  // 6. fechar estruturas
+  let openBraces=(txt.match(/{/g)||[]).length;
+  let closeBraces=(txt.match(/}/g)||[]).length;
+
+  while(closeBraces<openBraces){
+    txt+="}";
+    closeBraces++;
+  }
+
+  let openBrackets=(txt.match(/\[/g)||[]).length;
+  let closeBrackets=(txt.match(/]/g)||[]).length;
+
+  while(closeBrackets<openBrackets){
+    txt+="]";
+    closeBrackets++;
+  }
+
+  // 7. tentativa de parse progressivo
+  let sucesso=false;
+
+  try{
+    JSON.parse(txt);
+    sucesso=true;
+  }catch(e){
+
+    log("⚠️ Tentando reconstrução inteligente...");
+
+    try{
+      // fallback: tenta converter para array de linhas válidas
+      let linhas=txt.split("\n").filter(l=>l.trim()!=="");
+      let arr=[];
+
+      linhas.forEach(l=>{
+        try{
+          arr.push(JSON.parse(l));
+        }catch{}
+      });
+
+      if(arr.length>0){
+        txt=JSON.stringify(arr,null,2);
+        sucesso=true;
+      }
+
+    }catch{}
+  }
+
+  if(sucesso){
+    jsonCorrigido=JSON.stringify(JSON.parse(txt),null,2);
+    document.getElementById("editor").value=jsonCorrigido;
+
+    log("✅ JSON corrigido com sucesso!");
+  }else{
+    log("❌ Não foi possível corrigir completamente.");
+  }
 }
+
+// ===== COPY =====
+function copiarCorrigido(){
+  if(!jsonCorrigido){
+    alert("Nada corrigido ainda!");
+    return;
+  }
+  navigator.clipboard.writeText(jsonCorrigido);
+  alert("Copiado!");
+}
+
+// ===== DOWNLOAD =====
+function baixarCorrigido(){
+  if(!jsonCorrigido){
+    alert("Nada corrigido ainda!");
+    return;
+  }
+
+  const blob=new Blob([jsonCorrigido],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="corrigido.json";
+  a.click();
+}
+
 </script>
 
 </body>
