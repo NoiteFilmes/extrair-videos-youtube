@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<title>YouTube Extractor PRO</title>
+
+<style>
+body {
+  font-family: Arial;
+  background: #0f172a;
+  color: white;
+  padding: 20px;
+}
+
+.container {
+  max-width: 800px;
+  margin: auto;
+}
+
+input, button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 15px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+.progress {
+  margin-top: 15px;
+  height: 20px;
+  background: #1e293b;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.3s;
+}
+
+pre {
+  background: black;
+  padding: 15px;
+  margin-top: 15px;
+  max-height: 300px;
+  overflow: auto;
+  font-size: 12px;
+}
+</style>
+
+</head>
+<body>
+
+<div class="container">
+
+<h2>🚀 YouTube Extractor PRO</h2>
+
+<input id="url" placeholder="Canal ou playlist">
+<input id="filtro" placeholder="Filtro (ex: filme completo)">
+
+<button onclick="extrair()">Extrair</button>
+
+<div class="progress">
+  <div id="bar" class="progress-bar"></div>
+</div>
+
+<button onclick="baixarJSON()">📥 Baixar JSON</button>
+<button onclick="baixarLinks()">🔗 Baixar Links</button>
+<button onclick="copiar()">📋 Copiar Tudo</button>
+
+<pre id="output"></pre>
+
+</div>
+
+<script>
+const API_KEY = "AIzaSyAbNom3ojJUOAPME0jAPUPiP4adZ6SNHhk";
+
+let dados = [];
+
+function updateProgress(p) {
+  document.getElementById("bar").style.width = p + "%";
+}
+
+async function getChannelId(username) {
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${username}&type=channel&key=${API_KEY}`);
+  const data = await res.json();
+  return data.items[0].snippet.channelId;
+}
+
+async function getPlaylistVideos(playlistId) {
+  let videos = [];
+  let next = "";
+
+  do {
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50&pageToken=${next}`);
+    const data = await res.json();
+
+    videos.push(...data.items.map(v => ({
+      titulo: v.snippet.title,
+      descricao: v.snippet.description,
+      link: `https://www.youtube.com/watch?v=${v.snippet.resourceId.videoId}`
+    })));
+
+    next = data.nextPageToken;
+
+  } while (next);
+
+  return videos;
+}
+
+async function getVideos(channelId) {
+  let videos = [];
+  let next = "";
+  let page = 0;
+
+  do {
+    page++;
+    updateProgress(page * 10);
+
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/search?key=${API_KEY}&channelId=${channelId}&part=snippet,id&maxResults=50&pageToken=${next}`);
+    const data = await res.json();
+
+    const ids = data.items.filter(v => v.id.videoId).map(v => v.id.videoId);
+
+    const details = await fetch(`https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${ids.join(",")}&part=snippet`);
+    const det = await details.json();
+
+    videos.push(...det.items.map(v => ({
+      titulo: v.snippet.title,
+      descricao: v.snippet.description,
+      link: `https://www.youtube.com/watch?v=${v.id}`
+    })));
+
+    next = data.nextPageToken;
+
+  } while (next);
+
+  updateProgress(100);
+  return videos;
+}
+
+async function extrair() {
+  const url = document.getElementById("url").value;
+  const filtro = document.getElementById("filtro").value.toLowerCase();
+  const out = document.getElementById("output");
+
+  out.textContent = "Carregando...";
+  updateProgress(0);
+
+  try {
+    if (url.includes("list=")) {
+      const playlistId = url.split("list=")[1];
+      dados = await getPlaylistVideos(playlistId);
+    } else {
+      const username = url.split("@")[1];
+      const channelId = await getChannelId(username);
+      dados = await getVideos(channelId);
+    }
+
+    if (filtro) {
+      dados = dados.filter(v =>
+        v.titulo.toLowerCase().includes(filtro) ||
+        v.descricao.toLowerCase().includes(filtro)
+      );
+    }
+
+    out.textContent = JSON.stringify(dados, null, 2);
+
+  } catch (e) {
+    out.textContent = "Erro: " + e.message;
+  }
+}
+
+function baixarJSON() {
+  const blob = new Blob([JSON.stringify(dados, null, 2)]);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dados.json";
+  a.click();
+}
+
+function baixarLinks() {
+  const txt = dados.map(v => v.link).join("\n");
+  const blob = new Blob([txt]);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "links.txt";
+  a.click();
+}
+
+function copiar() {
+  navigator.clipboard.writeText(JSON.stringify(dados, null, 2));
+  alert("Copiado!");
+}
+</script>
+
+</body>
+</html>
