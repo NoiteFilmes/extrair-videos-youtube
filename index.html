@@ -2,166 +2,208 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Sistema Completo YouTube + JSON IA</title>
-
-<script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
+<title>YouTube Extractor PRO</title>
 
 <style>
-body { background:#0f172a; color:white; font-family:Arial; }
-.container { max-width:1200px; margin:auto; padding:20px; }
+body {
+  font-family: Arial;
+  background: #0f172a;
+  color: white;
+  padding: 20px;
+}
 
-button,input { padding:10px; margin:5px; border-radius:6px; border:none; }
+.container {
+  max-width: 800px;
+  margin: auto;
+}
 
-#editor,#diff { height:300px; margin-top:10px; }
+input, button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 15px;
+}
 
-.red { color:#ff6b6b; }
-.green { color:#22c55e; }
+button {
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
 
-pre { background:black; padding:10px; max-height:200px; overflow:auto; }
+button:hover {
+  background: #1d4ed8;
+}
+
+.progress {
+  margin-top: 15px;
+  height: 20px;
+  background: #1e293b;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.3s;
+}
+
+pre {
+  background: black;
+  padding: 15px;
+  margin-top: 15px;
+  max-height: 300px;
+  overflow: auto;
+  font-size: 12px;
+}
 </style>
-</head>
 
+</head>
 <body>
+
 <div class="container">
 
-<h2>🚀 Sistema Completo</h2>
+<h2>🚀 YouTube Extractor PRO</h2>
 
-<!-- YOUTUBE -->
-<h3>📺 Extrair vídeos</h3>
-<input id="canal" placeholder="https://youtube.com/@canal">
+<input id="url" placeholder="Canal ou playlist">
+<input id="filtro" placeholder="Filtro (ex: filme completo)">
+
 <button onclick="extrair()">Extrair</button>
 
-<button onclick="baixarLinks()">Baixar links</button>
+<div class="progress">
+  <div id="bar" class="progress-bar"></div>
+</div>
 
-<pre id="videos"></pre>
+<button onclick="baixarJSON()">📥 Baixar JSON</button>
+<button onclick="baixarLinks()">🔗 Baixar Links</button>
+<button onclick="copiar()">📋 Copiar Tudo</button>
 
-<hr>
-
-<!-- JSON EDITOR -->
-<h3>🧠 Editor JSON IA</h3>
-
-<input type="file" id="file" multiple>
-<button onclick="carregar()">Carregar JSON</button>
-
-<button onclick="validar()">Validar</button>
-<button onclick="corrigirIA()">Corrigir com IA</button>
-
-<button onclick="copiar()">Copiar</button>
-<button onclick="baixar()">Baixar</button>
-
-<div id="editor"></div>
-<div id="diff"></div>
-
-<div id="status"></div>
+<pre id="output"></pre>
 
 </div>
 
 <script>
-let editor, diff;
-let corrigido = "";
+const API_KEY = "AIzaSyAbNom3ojJUOAPME0jAPUPiP4adZ6SNHhk";
 
-require.config({ paths:{ vs:'https://unpkg.com/monaco-editor@0.45.0/min/vs'}});
-require(['vs/editor/editor.main'], function () {
+let dados = [];
 
-  editor = monaco.editor.create(document.getElementById('editor'), {
-    value:'{ nome: "teste", }',
-    language:'json',
-    theme:'vs-dark'
-  });
-
-  diff = monaco.editor.createDiffEditor(document.getElementById('diff'), {
-    theme:'vs-dark'
-  });
-
-});
-
-// ===== YOUTUBE =====
-const YT_KEY = "AIzaSyAbNom3ojJUOAPME0jAPUPiP4adZ6SNHhk";
-
-async function extrair(){
-  let url = document.getElementById("canal").value;
-  let user = url.split("@")[1];
-
-  let r = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${user}&type=channel&key=${YT_KEY}`);
-  let d = await r.json();
-
-  let id = d.items[0].snippet.channelId;
-
-  let res = await fetch(`https://www.googleapis.com/youtube/v3/search?key=${YT_KEY}&channelId=${id}&part=snippet,id&maxResults=20`);
-  let data = await res.json();
-
-  let vids = data.items.map(v=>`https://youtube.com/watch?v=${v.id.videoId}`);
-  document.getElementById("videos").textContent = vids.join("\n");
+function updateProgress(p) {
+  document.getElementById("bar").style.width = p + "%";
 }
 
-function baixarLinks(){
-  let txt = document.getElementById("videos").textContent;
-  let blob = new Blob([txt]);
-  let a = document.createElement("a");
+async function getChannelId(username) {
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${username}&type=channel&key=${API_KEY}`);
+  const data = await res.json();
+  return data.items[0].snippet.channelId;
+}
+
+async function getPlaylistVideos(playlistId) {
+  let videos = [];
+  let next = "";
+
+  do {
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50&pageToken=${next}`);
+    const data = await res.json();
+
+    videos.push(...data.items.map(v => ({
+      titulo: v.snippet.title,
+      descricao: v.snippet.description,
+      link: `https://www.youtube.com/watch?v=${v.snippet.resourceId.videoId}`
+    })));
+
+    next = data.nextPageToken;
+
+  } while (next);
+
+  return videos;
+}
+
+async function getVideos(channelId) {
+  let videos = [];
+  let next = "";
+  let page = 0;
+
+  do {
+    page++;
+    updateProgress(page * 10);
+
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/search?key=${API_KEY}&channelId=${channelId}&part=snippet,id&maxResults=50&pageToken=${next}`);
+    const data = await res.json();
+
+    const ids = data.items.filter(v => v.id.videoId).map(v => v.id.videoId);
+
+    const details = await fetch(`https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${ids.join(",")}&part=snippet`);
+    const det = await details.json();
+
+    videos.push(...det.items.map(v => ({
+      titulo: v.snippet.title,
+      descricao: v.snippet.description,
+      link: `https://www.youtube.com/watch?v=${v.id}`
+    })));
+
+    next = data.nextPageToken;
+
+  } while (next);
+
+  updateProgress(100);
+  return videos;
+}
+
+async function extrair() {
+  const url = document.getElementById("url").value;
+  const filtro = document.getElementById("filtro").value.toLowerCase();
+  const out = document.getElementById("output");
+
+  out.textContent = "Carregando...";
+  updateProgress(0);
+
+  try {
+    if (url.includes("list=")) {
+      const playlistId = url.split("list=")[1];
+      dados = await getPlaylistVideos(playlistId);
+    } else {
+      const username = url.split("@")[1];
+      const channelId = await getChannelId(username);
+      dados = await getVideos(channelId);
+    }
+
+    if (filtro) {
+      dados = dados.filter(v =>
+        v.titulo.toLowerCase().includes(filtro) ||
+        v.descricao.toLowerCase().includes(filtro)
+      );
+    }
+
+    out.textContent = JSON.stringify(dados, null, 2);
+
+  } catch (e) {
+    out.textContent = "Erro: " + e.message;
+  }
+}
+
+function baixarJSON() {
+  const blob = new Blob([JSON.stringify(dados, null, 2)]);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dados.json";
+  a.click();
+}
+
+function baixarLinks() {
+  const txt = dados.map(v => v.link).join("\n");
+  const blob = new Blob([txt]);
+  const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "links.txt";
   a.click();
 }
 
-// ===== JSON =====
-function carregar(){
-  let files = document.getElementById("file").files;
-  let txt = "";
-
-  Array.from(files).forEach(f=>{
-    let r = new FileReader();
-    r.onload = e=>{
-      txt += e.target.result;
-      editor.setValue(txt);
-    };
-    r.readAsText(f);
-  });
-}
-
-function validar(){
-  try{
-    JSON.parse(editor.getValue());
-    status("✅ válido",true);
-  }catch(e){
-    status("❌ "+e.message,false);
-  }
-}
-
-async function corrigirIA(){
-
-  let res = await fetch("http://localhost:3000/corrigir", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json"},
-    body: JSON.stringify({ json: editor.getValue() })
-  });
-
-  let data = await res.json();
-
-  corrigido = data.resposta;
-
-  diff.setModel({
-    original: monaco.editor.createModel(editor.getValue(),"json"),
-    modified: monaco.editor.createModel(corrigido,"json")
-  });
-
-  status("✅ corrigido com IA",true);
-}
-
-function copiar(){
-  navigator.clipboard.writeText(corrigido);
-}
-
-function baixar(){
-  let blob = new Blob([corrigido]);
-  let a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "corrigido.json";
-  a.click();
-}
-
-function status(msg,ok){
-  let el = document.getElementById("status");
-  el.innerHTML = `<span class="${ok?'green':'red'}">${msg}</span>`;
+function copiar() {
+  navigator.clipboard.writeText(JSON.stringify(dados, null, 2));
+  alert("Copiado!");
 }
 </script>
 
