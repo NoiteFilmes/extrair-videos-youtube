@@ -2,97 +2,166 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>JSON AI ULTIMATE</title>
+<title>Sistema Completo YouTube + JSON IA</title>
+
+<script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
 
 <style>
 body { background:#0f172a; color:white; font-family:Arial; }
 .container { max-width:1200px; margin:auto; padding:20px; }
-button { padding:10px; margin:5px; background:#2563eb; color:white; border:none; border-radius:6px;}
-#editor, #diff { height:300px; margin-top:10px; }
-.explicacao { background:#020617; padding:10px; margin-top:10px; }
-</style>
 
-<script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
+button,input { padding:10px; margin:5px; border-radius:6px; border:none; }
+
+#editor,#diff { height:300px; margin-top:10px; }
+
+.red { color:#ff6b6b; }
+.green { color:#22c55e; }
+
+pre { background:black; padding:10px; max-height:200px; overflow:auto; }
+</style>
 </head>
 
 <body>
 <div class="container">
 
-<h2>🤖 JSON AI ULTIMATE</h2>
+<h2>🚀 Sistema Completo</h2>
 
-<button onclick="validar()">🔍 Validar</button>
-<button onclick="corrigirIA()">🧠 Corrigir com IA</button>
-<button onclick="copiar()">📋 Copiar</button>
-<button onclick="baixar()">📥 Baixar</button>
+<!-- YOUTUBE -->
+<h3>📺 Extrair vídeos</h3>
+<input id="canal" placeholder="https://youtube.com/@canal">
+<button onclick="extrair()">Extrair</button>
+
+<button onclick="baixarLinks()">Baixar links</button>
+
+<pre id="videos"></pre>
+
+<hr>
+
+<!-- JSON EDITOR -->
+<h3>🧠 Editor JSON IA</h3>
+
+<input type="file" id="file" multiple>
+<button onclick="carregar()">Carregar JSON</button>
+
+<button onclick="validar()">Validar</button>
+<button onclick="corrigirIA()">Corrigir com IA</button>
+
+<button onclick="copiar()">Copiar</button>
+<button onclick="baixar()">Baixar</button>
 
 <div id="editor"></div>
 <div id="diff"></div>
 
-<div id="explicacao" class="explicacao"></div>
+<div id="status"></div>
 
 </div>
 
 <script>
-let editor, diffEditor;
+let editor, diff;
 let corrigido = "";
 
-require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.45.0/min/vs' }});
+require.config({ paths:{ vs:'https://unpkg.com/monaco-editor@0.45.0/min/vs'}});
 require(['vs/editor/editor.main'], function () {
 
   editor = monaco.editor.create(document.getElementById('editor'), {
-    value: '{ nome: "teste", idade: 30, }',
-    language: 'json',
-    theme: 'vs-dark'
+    value:'{ nome: "teste", }',
+    language:'json',
+    theme:'vs-dark'
   });
 
-  diffEditor = monaco.editor.createDiffEditor(document.getElementById('diff'), {
-    theme: 'vs-dark'
+  diff = monaco.editor.createDiffEditor(document.getElementById('diff'), {
+    theme:'vs-dark'
   });
+
 });
 
-// VALIDAR
+// ===== YOUTUBE =====
+const YT_KEY = "AIzaSyAbNom3ojJUOAPME0jAPUPiP4adZ6SNHhk";
+
+async function extrair(){
+  let url = document.getElementById("canal").value;
+  let user = url.split("@")[1];
+
+  let r = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${user}&type=channel&key=${YT_KEY}`);
+  let d = await r.json();
+
+  let id = d.items[0].snippet.channelId;
+
+  let res = await fetch(`https://www.googleapis.com/youtube/v3/search?key=${YT_KEY}&channelId=${id}&part=snippet,id&maxResults=20`);
+  let data = await res.json();
+
+  let vids = data.items.map(v=>`https://youtube.com/watch?v=${v.id.videoId}`);
+  document.getElementById("videos").textContent = vids.join("\n");
+}
+
+function baixarLinks(){
+  let txt = document.getElementById("videos").textContent;
+  let blob = new Blob([txt]);
+  let a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "links.txt";
+  a.click();
+}
+
+// ===== JSON =====
+function carregar(){
+  let files = document.getElementById("file").files;
+  let txt = "";
+
+  Array.from(files).forEach(f=>{
+    let r = new FileReader();
+    r.onload = e=>{
+      txt += e.target.result;
+      editor.setValue(txt);
+    };
+    r.readAsText(f);
+  });
+}
+
 function validar(){
   try{
     JSON.parse(editor.getValue());
-    alert("JSON válido");
+    status("✅ válido",true);
   }catch(e){
-    alert(e.message);
+    status("❌ "+e.message,false);
   }
 }
 
-// IA
 async function corrigirIA(){
 
-  const res = await fetch("http://localhost:3000/corrigir", {
+  let res = await fetch("http://localhost:3000/corrigir", {
     method:"POST",
-    headers:{ "Content-Type":"application/json" },
+    headers:{ "Content-Type":"application/json"},
     body: JSON.stringify({ json: editor.getValue() })
   });
 
-  const data = await res.json();
+  let data = await res.json();
 
-  corrigido = JSON.stringify(data.corrigido, null, 2);
+  corrigido = data.resposta;
 
-  document.getElementById("explicacao").innerText = data.explicacao;
-
-  diffEditor.setModel({
-    original: monaco.editor.createModel(editor.getValue(), 'json'),
-    modified: monaco.editor.createModel(corrigido, 'json')
+  diff.setModel({
+    original: monaco.editor.createModel(editor.getValue(),"json"),
+    modified: monaco.editor.createModel(corrigido,"json")
   });
+
+  status("✅ corrigido com IA",true);
 }
 
-// COPY
 function copiar(){
   navigator.clipboard.writeText(corrigido);
 }
 
-// DOWNLOAD
 function baixar(){
-  const blob = new Blob([corrigido], {type:"application/json"});
-  const a = document.createElement("a");
+  let blob = new Blob([corrigido]);
+  let a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "corrigido.json";
   a.click();
+}
+
+function status(msg,ok){
+  let el = document.getElementById("status");
+  el.innerHTML = `<span class="${ok?'green':'red'}">${msg}</span>`;
 }
 </script>
 
