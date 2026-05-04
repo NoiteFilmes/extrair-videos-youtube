@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>YouTube Extractor PRO</title>
+<title>YouTube Extractor PRO+</title>
 
 <style>
 body {
@@ -13,7 +13,7 @@ body {
 }
 
 .container {
-  max-width: 800px;
+  max-width: 900px;
   margin: auto;
 }
 
@@ -41,14 +41,12 @@ button:hover {
   height: 20px;
   background: #1e293b;
   border-radius: 10px;
-  overflow: hidden;
 }
 
 .progress-bar {
   height: 100%;
   width: 0%;
   background: #22c55e;
-  transition: width 0.3s;
 }
 
 pre {
@@ -59,6 +57,13 @@ pre {
   overflow: auto;
   font-size: 12px;
 }
+
+.error {
+  color: #ff6b6b;
+  background: #1a0000;
+  padding: 10px;
+  margin-top: 10px;
+}
 </style>
 
 </head>
@@ -66,7 +71,7 @@ pre {
 
 <div class="container">
 
-<h2>🚀 YouTube Extractor PRO</h2>
+<h2>🚀 YouTube Extractor PRO+</h2>
 
 <input id="url" placeholder="Canal ou playlist">
 <input id="filtro" placeholder="Filtro (ex: filme completo)">
@@ -76,6 +81,16 @@ pre {
 <div class="progress">
   <div id="bar" class="progress-bar"></div>
 </div>
+
+<hr>
+
+<h3>📤 Validar JSON</h3>
+<input type="file" id="fileInput" accept=".json">
+<button onclick="validarJSON()">Validar Arquivo JSON</button>
+
+<div id="jsonError" class="error"></div>
+
+<hr>
 
 <button onclick="baixarJSON()">📥 Baixar JSON</button>
 <button onclick="baixarLinks()">🔗 Baixar Links</button>
@@ -87,38 +102,18 @@ pre {
 
 <script>
 const API_KEY = "AIzaSyAbNom3ojJUOAPME0jAPUPiP4adZ6SNHhk";
-
 let dados = [];
 
 function updateProgress(p) {
   document.getElementById("bar").style.width = p + "%";
 }
 
+// ===== YOUTUBE =====
+
 async function getChannelId(username) {
   const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${username}&type=channel&key=${API_KEY}`);
   const data = await res.json();
   return data.items[0].snippet.channelId;
-}
-
-async function getPlaylistVideos(playlistId) {
-  let videos = [];
-  let next = "";
-
-  do {
-    const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50&pageToken=${next}`);
-    const data = await res.json();
-
-    videos.push(...data.items.map(v => ({
-      titulo: v.snippet.title,
-      descricao: v.snippet.description,
-      link: `https://www.youtube.com/watch?v=${v.snippet.resourceId.videoId}`
-    })));
-
-    next = data.nextPageToken;
-
-  } while (next);
-
-  return videos;
 }
 
 async function getVideos(channelId) {
@@ -134,6 +129,8 @@ async function getVideos(channelId) {
     const data = await res.json();
 
     const ids = data.items.filter(v => v.id.videoId).map(v => v.id.videoId);
+
+    if (ids.length === 0) break;
 
     const details = await fetch(`https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${ids.join(",")}&part=snippet`);
     const det = await details.json();
@@ -152,6 +149,8 @@ async function getVideos(channelId) {
   return videos;
 }
 
+// ===== EXTRAÇÃO =====
+
 async function extrair() {
   const url = document.getElementById("url").value;
   const filtro = document.getElementById("filtro").value.toLowerCase();
@@ -161,14 +160,10 @@ async function extrair() {
   updateProgress(0);
 
   try {
-    if (url.includes("list=")) {
-      const playlistId = url.split("list=")[1];
-      dados = await getPlaylistVideos(playlistId);
-    } else {
-      const username = url.split("@")[1];
-      const channelId = await getChannelId(username);
-      dados = await getVideos(channelId);
-    }
+    const username = url.split("@")[1];
+    const channelId = await getChannelId(username);
+
+    dados = await getVideos(channelId);
 
     if (filtro) {
       dados = dados.filter(v =>
@@ -183,6 +178,8 @@ async function extrair() {
     out.textContent = "Erro: " + e.message;
   }
 }
+
+// ===== DOWNLOAD =====
 
 function baixarJSON() {
   const blob = new Blob([JSON.stringify(dados, null, 2)]);
@@ -204,6 +201,60 @@ function baixarLinks() {
 function copiar() {
   navigator.clipboard.writeText(JSON.stringify(dados, null, 2));
   alert("Copiado!");
+}
+
+// ===== VALIDADOR JSON =====
+
+function validarJSON() {
+  const file = document.getElementById("fileInput").files[0];
+  const errorDiv = document.getElementById("jsonError");
+
+  if (!file) {
+    errorDiv.textContent = "Selecione um arquivo JSON.";
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onload = function(e) {
+    const text = e.target.result;
+
+    try {
+      JSON.parse(text);
+      errorDiv.style.color = "#22c55e";
+      errorDiv.textContent = "✅ JSON válido!";
+    } catch (err) {
+      errorDiv.style.color = "#ff6b6b";
+
+      // tenta extrair posição
+      const match = err.message.match(/position (\d+)/);
+      let linha = "desconhecida";
+
+      if (match) {
+        const pos = parseInt(match[1]);
+        linha = text.substring(0, pos).split("\n").length;
+      }
+
+      let dica = "";
+
+      if (err.message.includes("Unexpected token")) {
+        dica = "Possível erro de vírgula extra, aspas faltando ou caractere inválido.";
+      } else if (err.message.includes("Unexpected end")) {
+        dica = "JSON incompleto (faltando fechar } ou ]).";
+      }
+
+      errorDiv.innerHTML = `
+❌ JSON inválido  
+Linha aproximada: ${linha}  
+
+Erro: ${err.message}  
+
+💡 Sugestão: ${dica}
+      `;
+    }
+  };
+
+  reader.readAsText(file);
 }
 </script>
 
