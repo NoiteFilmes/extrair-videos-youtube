@@ -2,55 +2,72 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>JSON + YouTube ULTRA FIX</title>
+<title>JSON AI PRO Editor</title>
 
 <style>
-body {font-family:Arial;background:#0f172a;color:white;padding:20px;}
-.container{max-width:1000px;margin:auto;}
-input,button,textarea{
-  width:100%;padding:10px;margin-top:10px;border-radius:6px;border:none;
-}
-button{background:#2563eb;color:white;cursor:pointer;}
-textarea{height:300px;background:#020617;color:#e2e8f0;font-family:monospace;}
-pre{background:black;padding:10px;}
+body { background:#0f172a; color:white; font-family:Arial; }
+.container { max-width:1200px; margin:auto; padding:20px; }
+button { padding:10px; margin:5px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer;}
+#editor { height:400px; border:1px solid #333; }
+#diff { height:300px; margin-top:20px; }
+.log { margin-top:10px; }
 </style>
+
+<script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
 </head>
 
 <body>
 <div class="container">
 
-<h2>🚀 JSON FIXER + YouTube</h2>
+<h2>🤖 JSON AI PRO Editor</h2>
 
-<h3>📂 Upload JSON</h3>
 <input type="file" id="file" multiple>
+<br>
 
-<button onclick="carregar()">Carregar</button>
-<button onclick="validar()">Validar</button>
-<button onclick="corrigir()">🛠️ Corrigir COMPLETO</button>
+<button onclick="carregar()">📂 Carregar</button>
+<button onclick="validar()">🔍 Validar</button>
+<button onclick="corrigir()">🛠️ Corrigir com IA</button>
+<button onclick="copiar()">📋 Copiar corrigido</button>
+<button onclick="baixar()">📥 Baixar corrigido</button>
 
-<button onclick="copiarCorrigido()">📋 Copiar JSON corrigido</button>
-<button onclick="baixarCorrigido()">📥 Baixar JSON corrigido</button>
+<div id="editor"></div>
+<div id="diff"></div>
 
-<textarea id="editor"></textarea>
-
-<div id="log"></div>
+<div id="log" class="log"></div>
 
 </div>
 
 <script>
+let editor, diffEditor;
+let corrigido = "";
 
-let jsonCorrigido="";
+// ===== MONACO INIT =====
+require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.45.0/min/vs' }});
+require(['vs/editor/editor.main'], function () {
 
-// ===== LOAD =====
+  editor = monaco.editor.create(document.getElementById('editor'), {
+    value: '',
+    language: 'json',
+    theme: 'vs-dark',
+    automaticLayout: true
+  });
+
+  diffEditor = monaco.editor.createDiffEditor(document.getElementById('diff'), {
+    theme: 'vs-dark'
+  });
+
+});
+
+// ===== LOAD FILE =====
 function carregar(){
-  const files=document.getElementById("file").files;
-  let texto="";
+  const files = document.getElementById("file").files;
+  let txt = "";
 
   Array.from(files).forEach(f=>{
-    const r=new FileReader();
-    r.onload=e=>{
-      texto+=e.target.result+"\n";
-      document.getElementById("editor").value=texto;
+    const r = new FileReader();
+    r.onload = e=>{
+      txt += e.target.result + "\n";
+      editor.setValue(txt);
     };
     r.readAsText(f);
   });
@@ -58,124 +75,93 @@ function carregar(){
 
 // ===== VALIDAR =====
 function validar(){
-  try{
-    JSON.parse(document.getElementById("editor").value);
+  const model = editor.getModel();
+  const value = editor.getValue();
+
+  try {
+    JSON.parse(value);
     log("✅ JSON válido");
-  }catch(e){
-    log("❌ Erro: "+e.message);
+    monaco.editor.setModelMarkers(model, "owner", []);
+  } catch(e) {
+
+    let posMatch = e.message.match(/position (\d+)/);
+    if(posMatch){
+      let pos = parseInt(posMatch[1]);
+      let position = model.getPositionAt(pos);
+
+      monaco.editor.setModelMarkers(model, "owner", [{
+        startLineNumber: position.lineNumber,
+        startColumn: position.column,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column + 1,
+        message: e.message,
+        severity: monaco.MarkerSeverity.Error
+      }]);
+
+      log(`❌ Erro na linha ${position.lineNumber}, coluna ${position.column}`);
+    } else {
+      log("❌ Erro: " + e.message);
+    }
   }
 }
 
-// ===== LOG =====
-function log(msg){
-  document.getElementById("log").innerHTML+=msg+"<br>";
-}
-
-// ===== CORREÇÃO AVANÇADA =====
+// ===== CORREÇÃO “IA” =====
 function corrigir(){
+  let original = editor.getValue();
+  let txt = original;
 
-  let txt=document.getElementById("editor").value;
-  let original=txt;
+  // Correções inteligentes
+  txt = txt.replace(/,\s*}/g,"}");
+  txt = txt.replace(/,\s*]/g,"]");
+  txt = txt.replace(/([{,]\s*)(\w+)\s*:/g,'$1"$2":');
+  txt = txt.replace(/'/g,'"');
 
-  log("🔧 Iniciando correção...");
+  // Balanceamento
+  let open = (txt.match(/{/g)||[]).length;
+  let close = (txt.match(/}/g)||[]).length;
+  while(close < open){ txt += "}"; close++; }
 
-  // 1. remover BOM
-  txt=txt.replace(/^\uFEFF/, "");
-
-  // 2. remover comentários
-  txt=txt.replace(/\/\/.*$/gm,"");
-  txt=txt.replace(/\/\*[\s\S]*?\*\//g,"");
-
-  // 3. remover vírgulas inválidas
-  txt=txt.replace(/,\s*}/g,"}");
-  txt=txt.replace(/,\s*]/g,"]");
-
-  // 4. adicionar aspas em chaves
-  txt=txt.replace(/([{,]\s*)(\w+)\s*:/g,'$1"$2":');
-
-  // 5. corrigir aspas simples
-  txt=txt.replace(/'/g,'"');
-
-  // 6. fechar estruturas
-  let openBraces=(txt.match(/{/g)||[]).length;
-  let closeBraces=(txt.match(/}/g)||[]).length;
-
-  while(closeBraces<openBraces){
-    txt+="}";
-    closeBraces++;
-  }
-
-  let openBrackets=(txt.match(/\[/g)||[]).length;
-  let closeBrackets=(txt.match(/]/g)||[]).length;
-
-  while(closeBrackets<openBrackets){
-    txt+="]";
-    closeBrackets++;
-  }
-
-  // 7. tentativa de parse progressivo
-  let sucesso=false;
+  let openB = (txt.match(/\[/g)||[]).length;
+  let closeB = (txt.match(/]/g)||[]).length;
+  while(closeB < openB){ txt += "]"; closeB++; }
 
   try{
-    JSON.parse(txt);
-    sucesso=true;
-  }catch(e){
+    corrigido = JSON.stringify(JSON.parse(txt), null, 2);
+    log("✅ Corrigido com sucesso");
 
-    log("⚠️ Tentando reconstrução inteligente...");
+    // DIFF VIEW
+    diffEditor.setModel({
+      original: monaco.editor.createModel(original, 'json'),
+      modified: monaco.editor.createModel(corrigido, 'json')
+    });
 
-    try{
-      // fallback: tenta converter para array de linhas válidas
-      let linhas=txt.split("\n").filter(l=>l.trim()!=="");
-      let arr=[];
-
-      linhas.forEach(l=>{
-        try{
-          arr.push(JSON.parse(l));
-        }catch{}
-      });
-
-      if(arr.length>0){
-        txt=JSON.stringify(arr,null,2);
-        sucesso=true;
-      }
-
-    }catch{}
-  }
-
-  if(sucesso){
-    jsonCorrigido=JSON.stringify(JSON.parse(txt),null,2);
-    document.getElementById("editor").value=jsonCorrigido;
-
-    log("✅ JSON corrigido com sucesso!");
-  }else{
-    log("❌ Não foi possível corrigir completamente.");
+  } catch(e){
+    log("❌ Não foi possível corrigir totalmente");
   }
 }
 
 // ===== COPY =====
-function copiarCorrigido(){
-  if(!jsonCorrigido){
-    alert("Nada corrigido ainda!");
-    return;
-  }
-  navigator.clipboard.writeText(jsonCorrigido);
+function copiar(){
+  if(!corrigido) return alert("Nada corrigido");
+  navigator.clipboard.writeText(corrigido);
   alert("Copiado!");
 }
 
 // ===== DOWNLOAD =====
-function baixarCorrigido(){
-  if(!jsonCorrigido){
-    alert("Nada corrigido ainda!");
-    return;
-  }
+function baixar(){
+  if(!corrigido) return alert("Nada corrigido");
 
-  const blob=new Blob([jsonCorrigido],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download="corrigido.json";
+  const blob = new Blob([corrigido], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "corrigido.json";
   a.click();
 }
 
+// ===== LOG =====
+function log(msg){
+  document.getElementById("log").innerHTML = msg;
+}
 </script>
 
 </body>
