@@ -2,15 +2,14 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>JSON AI PRO Editor</title>
+<title>JSON AI ULTIMATE</title>
 
 <style>
 body { background:#0f172a; color:white; font-family:Arial; }
 .container { max-width:1200px; margin:auto; padding:20px; }
-button { padding:10px; margin:5px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer;}
-#editor { height:400px; border:1px solid #333; }
-#diff { height:300px; margin-top:20px; }
-.log { margin-top:10px; }
+button { padding:10px; margin:5px; background:#2563eb; color:white; border:none; border-radius:6px;}
+#editor, #diff { height:300px; margin-top:10px; }
+.explicacao { background:#020617; padding:10px; margin-top:10px; }
 </style>
 
 <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
@@ -19,21 +18,17 @@ button { padding:10px; margin:5px; background:#2563eb; color:white; border:none;
 <body>
 <div class="container">
 
-<h2>🤖 JSON AI PRO Editor</h2>
+<h2>🤖 JSON AI ULTIMATE</h2>
 
-<input type="file" id="file" multiple>
-<br>
-
-<button onclick="carregar()">📂 Carregar</button>
 <button onclick="validar()">🔍 Validar</button>
-<button onclick="corrigir()">🛠️ Corrigir com IA</button>
-<button onclick="copiar()">📋 Copiar corrigido</button>
-<button onclick="baixar()">📥 Baixar corrigido</button>
+<button onclick="corrigirIA()">🧠 Corrigir com IA</button>
+<button onclick="copiar()">📋 Copiar</button>
+<button onclick="baixar()">📥 Baixar</button>
 
 <div id="editor"></div>
 <div id="diff"></div>
 
-<div id="log" class="log"></div>
+<div id="explicacao" class="explicacao"></div>
 
 </div>
 
@@ -41,126 +36,63 @@ button { padding:10px; margin:5px; background:#2563eb; color:white; border:none;
 let editor, diffEditor;
 let corrigido = "";
 
-// ===== MONACO INIT =====
 require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.45.0/min/vs' }});
 require(['vs/editor/editor.main'], function () {
 
   editor = monaco.editor.create(document.getElementById('editor'), {
-    value: '',
+    value: '{ nome: "teste", idade: 30, }',
     language: 'json',
-    theme: 'vs-dark',
-    automaticLayout: true
+    theme: 'vs-dark'
   });
 
   diffEditor = monaco.editor.createDiffEditor(document.getElementById('diff'), {
     theme: 'vs-dark'
   });
-
 });
 
-// ===== LOAD FILE =====
-function carregar(){
-  const files = document.getElementById("file").files;
-  let txt = "";
+// VALIDAR
+function validar(){
+  try{
+    JSON.parse(editor.getValue());
+    alert("JSON válido");
+  }catch(e){
+    alert(e.message);
+  }
+}
 
-  Array.from(files).forEach(f=>{
-    const r = new FileReader();
-    r.onload = e=>{
-      txt += e.target.result + "\n";
-      editor.setValue(txt);
-    };
-    r.readAsText(f);
+// IA
+async function corrigirIA(){
+
+  const res = await fetch("http://localhost:3000/corrigir", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ json: editor.getValue() })
+  });
+
+  const data = await res.json();
+
+  corrigido = JSON.stringify(data.corrigido, null, 2);
+
+  document.getElementById("explicacao").innerText = data.explicacao;
+
+  diffEditor.setModel({
+    original: monaco.editor.createModel(editor.getValue(), 'json'),
+    modified: monaco.editor.createModel(corrigido, 'json')
   });
 }
 
-// ===== VALIDAR =====
-function validar(){
-  const model = editor.getModel();
-  const value = editor.getValue();
-
-  try {
-    JSON.parse(value);
-    log("✅ JSON válido");
-    monaco.editor.setModelMarkers(model, "owner", []);
-  } catch(e) {
-
-    let posMatch = e.message.match(/position (\d+)/);
-    if(posMatch){
-      let pos = parseInt(posMatch[1]);
-      let position = model.getPositionAt(pos);
-
-      monaco.editor.setModelMarkers(model, "owner", [{
-        startLineNumber: position.lineNumber,
-        startColumn: position.column,
-        endLineNumber: position.lineNumber,
-        endColumn: position.column + 1,
-        message: e.message,
-        severity: monaco.MarkerSeverity.Error
-      }]);
-
-      log(`❌ Erro na linha ${position.lineNumber}, coluna ${position.column}`);
-    } else {
-      log("❌ Erro: " + e.message);
-    }
-  }
-}
-
-// ===== CORREÇÃO “IA” =====
-function corrigir(){
-  let original = editor.getValue();
-  let txt = original;
-
-  // Correções inteligentes
-  txt = txt.replace(/,\s*}/g,"}");
-  txt = txt.replace(/,\s*]/g,"]");
-  txt = txt.replace(/([{,]\s*)(\w+)\s*:/g,'$1"$2":');
-  txt = txt.replace(/'/g,'"');
-
-  // Balanceamento
-  let open = (txt.match(/{/g)||[]).length;
-  let close = (txt.match(/}/g)||[]).length;
-  while(close < open){ txt += "}"; close++; }
-
-  let openB = (txt.match(/\[/g)||[]).length;
-  let closeB = (txt.match(/]/g)||[]).length;
-  while(closeB < openB){ txt += "]"; closeB++; }
-
-  try{
-    corrigido = JSON.stringify(JSON.parse(txt), null, 2);
-    log("✅ Corrigido com sucesso");
-
-    // DIFF VIEW
-    diffEditor.setModel({
-      original: monaco.editor.createModel(original, 'json'),
-      modified: monaco.editor.createModel(corrigido, 'json')
-    });
-
-  } catch(e){
-    log("❌ Não foi possível corrigir totalmente");
-  }
-}
-
-// ===== COPY =====
+// COPY
 function copiar(){
-  if(!corrigido) return alert("Nada corrigido");
   navigator.clipboard.writeText(corrigido);
-  alert("Copiado!");
 }
 
-// ===== DOWNLOAD =====
+// DOWNLOAD
 function baixar(){
-  if(!corrigido) return alert("Nada corrigido");
-
   const blob = new Blob([corrigido], {type:"application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "corrigido.json";
   a.click();
-}
-
-// ===== LOG =====
-function log(msg){
-  document.getElementById("log").innerHTML = msg;
 }
 </script>
 
